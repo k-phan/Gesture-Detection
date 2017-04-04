@@ -22,6 +22,11 @@ Function detects whether a pixel is skin color based on RGB values
 */
 void mySkinDetect(Mat& src, Mat& dst);
 
+/** 
+Function Creates Contours based on input
+*/
+void myHandDetect(Mat& src, Mat& dst);
+
 int main(){
 	/* Use Camera */
 	VideoCapture cap(0);
@@ -35,6 +40,7 @@ int main(){
 	/* Windows */
 	namedWindow("ControlVideo", WINDOW_AUTOSIZE);
 	namedWindow("SkinDetect", WINDOW_AUTOSIZE);
+	namedWindow("Contours", WINDOW_AUTOSIZE);
 
 	/* Test Frame Reading from Camera */
 	Mat testFrame;
@@ -62,10 +68,13 @@ int main(){
 
 		/* Image Processing */
 		mySkinDetect(frame, skinFrame);
+		Mat contourFrame = skinFrame.clone();
+		myHandDetect(skinFrame, contourFrame);
 
 		/* Output Frame */
 		imshow("ControlVideo", frame);
 		imshow("SkinDetect", skinFrame);
+		imshow("Contours", contourFrame);
 
 		/* Wait for ESC Key */
 		if (waitKey(30) == 27) {
@@ -116,5 +125,32 @@ void mySkinDetect(Mat& src, Mat& dst) {
 				dst.at<uchar>(i, j) = 255;
 			}
 		}
+	}
+}
+
+/* Draw Lines around hand */
+void myHandDetect(Mat& src, Mat& dst) {
+	// Mat threshold_output;
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+
+	// /* Detect Edges Using Threshold */
+	// threshold(src, threshold_output, 100, 255, THRESH_BINARY);
+
+	/* Find Contours from the Threshold Output */
+	findContours(src, contours, hierarchy, CV_RETR_TREE, 
+		CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
+
+	/* Find CONVEX HULL for each contour */
+	vector<vector<Point> > hull(contours.size());
+	for (int i = 0; i < contours.size(); i++) {
+		convexHull(Mat(contours[i]), hull[i], false);
+	}
+
+	/* Draw Contours based on Hull Results */
+	for (int i = 0; i < contours.size(); i ++) {
+		Scalar color = Scalar(255, 0, 0);
+		drawContours(dst, contours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
+		drawContours(dst, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
 	}
 }
