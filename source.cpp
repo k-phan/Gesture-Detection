@@ -1,5 +1,6 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/video/background_segm.hpp"
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,7 @@ void mySkinDetect(Mat& src, Mat& dst);
 /** 
 Function Creates Contours based on input
 */
-void myHandDetect(Mat& src, Mat& dst);
+void showContours(Mat& src, Mat& dst);
 
 int main(){
 	/* Use Camera */
@@ -40,11 +41,18 @@ int main(){
 	/* Windows */
 	namedWindow("ControlVideo", WINDOW_AUTOSIZE);
 	namedWindow("SkinDetect", WINDOW_AUTOSIZE);
+	namedWindow("BGSubtract", WINDOW_AUTOSIZE);
+	namedWindow("Color BGS", WINDOW_AUTOSIZE);
 	namedWindow("Contours", WINDOW_AUTOSIZE);
 
 	/* Test Frame Reading from Camera */
 	Mat testFrame;
 	bool frameSuccess = cap.read(testFrame);
+
+	/* Background Subtract Permanent Variables */
+	Mat fgMaskMog;
+	Ptr<BackgroundSubtractorKNN> pMOG;
+	pMOG = createBackgroundSubtractorKNN();
 
 	if (!frameSuccess) {
 		cout << "Failed to read test frame from video stream." << endl;
@@ -67,14 +75,29 @@ int main(){
 		Mat skinFrame = frameDest.clone();
 
 		/* Image Processing */
-		mySkinDetect(frame, skinFrame);
-		Mat contourFrame = skinFrame.clone();
-		myHandDetect(skinFrame, contourFrame);
+			/* Background Subtract */
+		Mat bgsFrame = frame.clone();
+		pMOG->apply(bgsFrame, fgMaskMog, .01);
+		// pMOG->apply(bgsFrame, fgMaskMog);
+		Mat colorForeground = Mat::zeros(frame.size(), frame.type());
+		frame.copyTo(colorForeground, fgMaskMog);
+			/* Skin Detect */
+		mySkinDetect(colorForeground, skinFrame);
+		Mat blurFrame1 = frameDest.clone();
+		Mat blurFrame2 = frameDest.clone();
+		GaussianBlur(skinFrame, blurFrame1, Size(9, 45), 0, BORDER_DEFAULT);
+		medianBlur(blurFrame1, blurFrame2, 13);
+			/* Find Contours */
+		Mat contourFrame = blurFrame2.clone();
+		showContours(blurFrame2, contourFrame);
 
 		/* Output Frame */
 		imshow("ControlVideo", frame);
 		imshow("SkinDetect", skinFrame);
+		imshow("BGSubtract", fgMaskMog);
+		imshow("Color BGS", colorForeground);
 		imshow("Contours", contourFrame);
+
 
 		/* Wait for ESC Key */
 		if (waitKey(30) == 27) {
@@ -129,13 +152,9 @@ void mySkinDetect(Mat& src, Mat& dst) {
 }
 
 /* Draw Lines around hand */
-void myHandDetect(Mat& src, Mat& dst) {
-	// Mat threshold_output;
+void showContours(Mat& src, Mat& dst) {
 	vector<vector<Point> > contours;
 	vector<Vec4i> hierarchy;
-
-	// /* Detect Edges Using Threshold */
-	// threshold(src, threshold_output, 100, 255, THRESH_BINARY);
 
 	/* Find Contours from the Threshold Output */
 	findContours(src, contours, hierarchy, CV_RETR_TREE, 
