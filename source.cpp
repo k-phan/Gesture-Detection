@@ -24,7 +24,7 @@ Function detects whether a pixel is skin color based on RGB values
 void mySkinDetect(Mat& src, Mat& dst);
 
 /** 
-Function Creates Contours based on input
+Function Creates Contours based on input and draws largest
 */
 void showContours(Mat& src, Mat& dst);
 
@@ -42,7 +42,7 @@ int main(){
 	namedWindow("ControlVideo", WINDOW_AUTOSIZE);
 	namedWindow("SkinDetect", WINDOW_AUTOSIZE);
 	namedWindow("BGSubtract", WINDOW_AUTOSIZE);
-	namedWindow("Color BGS", WINDOW_AUTOSIZE);
+	// namedWindow("Color BGS", WINDOW_AUTOSIZE);
 	namedWindow("Contours", WINDOW_AUTOSIZE);
 
 	/* Test Frame Reading from Camera */
@@ -77,15 +77,17 @@ int main(){
 		/* Image Processing */
 			/* Background Subtract */
 		Mat bgsFrame = frame.clone();
-		pMOG->apply(bgsFrame, fgMaskMog, .01);
+		pMOG->apply(bgsFrame, fgMaskMog, .0008);
 		// pMOG->apply(bgsFrame, fgMaskMog);
-		Mat colorForeground = Mat::zeros(frame.size(), frame.type());
-		frame.copyTo(colorForeground, fgMaskMog);
+		// Mat colorForeground = Mat::zeros(frame.size(), frame.type());
+		// frame.copyTo(colorForeground, fgMaskMog);
 			/* Skin Detect */
-		mySkinDetect(colorForeground, skinFrame);
+		mySkinDetect(frame, skinFrame);
+		Mat newSkinFrame = frameDest.clone();
+		skinFrame.copyTo(newSkinFrame, fgMaskMog);
 		Mat blurFrame1 = frameDest.clone();
 		Mat blurFrame2 = frameDest.clone();
-		GaussianBlur(skinFrame, blurFrame1, Size(9, 45), 0, BORDER_DEFAULT);
+		GaussianBlur(newSkinFrame, blurFrame1, Size(11, 55), 0, BORDER_DEFAULT);
 		medianBlur(blurFrame1, blurFrame2, 13);
 			/* Find Contours */
 		Mat contourFrame = blurFrame2.clone();
@@ -95,7 +97,7 @@ int main(){
 		imshow("ControlVideo", frame);
 		imshow("SkinDetect", skinFrame);
 		imshow("BGSubtract", fgMaskMog);
-		imshow("Color BGS", colorForeground);
+		// imshow("Color BGS", colorForeground);
 		imshow("Contours", contourFrame);
 
 
@@ -155,21 +157,43 @@ void mySkinDetect(Mat& src, Mat& dst) {
 void showContours(Mat& src, Mat& dst) {
 	vector<vector<Point> > contours;
 	vector<Vec4i> hierarchy;
+	// vector<vector<Vec4i> > defects(contours.size());
 
 	/* Find Contours from the Threshold Output */
-	findContours(src, contours, hierarchy, CV_RETR_TREE, 
+	findContours(src, contours, hierarchy, CV_RETR_EXTERNAL, 
 		CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
 
 	/* Find CONVEX HULL for each contour */
 	vector<vector<Point> > hull(contours.size());
+	vector<vector<int> > hullIndices(contours.size());
 	for (int i = 0; i < contours.size(); i++) {
 		convexHull(Mat(contours[i]), hull[i], false);
 	}
 
-	/* Draw Contours based on Hull Results */
-	for (int i = 0; i < contours.size(); i ++) {
-		Scalar color = Scalar(255, 0, 0);
-		drawContours(dst, contours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
-		drawContours(dst, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
+	/* Find Largest Contour & Its AREA */
+	int maxIndex = -1;
+	double maxArea = 0;
+	for (int i = 0; i < contours.size(); i++) {
+		double area = contourArea(contours[i], false);
+		if (area > maxArea) {
+			maxArea = area;
+			maxIndex = i;
+		}
 	}
+
+	// convexHull(contours[maxIndex], hull[maxIndex], false);
+	// convexHull(contours[maxIndex], hullIndices[maxIndex], false);
+	// convexityDefects(contours[maxIndex], hullIndices[maxIndex], defects[maxIndex]);
+
+	/* Draw Contours based on Hull Results */
+	// for (int i = 0; i < contours.size(); i ++) {
+	// 	Scalar color = Scalar(255, 0, 0);
+	// 	drawContours(dst, contours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
+	// 	drawContours(dst, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
+	// }
+
+	Scalar color = Scalar(255, 0, 0);
+	drawContours(dst, contours, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
+	drawContours(dst, hull, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
+
 }
