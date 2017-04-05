@@ -26,7 +26,13 @@ void mySkinDetect(Mat& src, Mat& dst);
 /** 
 Function Creates Contours based on input and draws largest
 */
-void showContours(Mat& src, Mat& dst);
+int findFingers(Mat& src, Mat& dst);
+
+/**
+Function to calculate angle between 2 fingers,
+Source: https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/
+*/
+float innerAngle(float px1, float py1, float px2, float py2, float cx1, float cy1);
 
 int main(){
 	/* Use Camera */
@@ -39,11 +45,12 @@ int main(){
 	}
 
 	/* Windows */
-	namedWindow("ControlVideo", WINDOW_AUTOSIZE);
-	namedWindow("SkinDetect", WINDOW_AUTOSIZE);
-	namedWindow("BGSubtract", WINDOW_AUTOSIZE);
+	// namedWindow("ControlVideo", WINDOW_AUTOSIZE);
+	// namedWindow("SkinDetect", WINDOW_AUTOSIZE);
+	// namedWindow("BGSubtract", WINDOW_AUTOSIZE);
 	// namedWindow("Color BGS", WINDOW_AUTOSIZE);
-	namedWindow("Contours", WINDOW_AUTOSIZE);
+	// namedWindow("FingerTips", WINDOW_AUTOSIZE);
+	namedWindow("Output", WINDOW_AUTOSIZE);
 
 	/* Test Frame Reading from Camera */
 	Mat testFrame;
@@ -85,20 +92,36 @@ int main(){
 		mySkinDetect(frame, skinFrame);
 		Mat newSkinFrame = frameDest.clone();
 		skinFrame.copyTo(newSkinFrame, fgMaskMog);
+			/* Blur Image */
 		Mat blurFrame1 = frameDest.clone();
 		Mat blurFrame2 = frameDest.clone();
 		GaussianBlur(newSkinFrame, blurFrame1, Size(11, 55), 0, BORDER_DEFAULT);
 		medianBlur(blurFrame1, blurFrame2, 13);
 			/* Find Contours */
 		Mat contourFrame = blurFrame2.clone();
-		showContours(blurFrame2, contourFrame);
+		int numCircles = findFingers(blurFrame2, contourFrame);
+			/* Final Frame */
+		Mat finalFrame = contourFrame.clone();
+		String outputString = "";
+		if (numCircles == 8 || numCircles == 9) {
+			outputString = "High Five!!";
+		} else if (numCircles == 6 || numCircles == 7) {
+			outputString = "High Four?!";
+		} else if (numCircles == 3 || numCircles == 4) {
+			outputString = "Peace!";
+		} else if (numCircles == 1 || numCircles == 2) {
+			outputString = "UP UP!";
+		}
+		putText(finalFrame, outputString, cvPoint(60, 60), FONT_HERSHEY_SIMPLEX, 
+			2.0, cvScalar(255, 0, 0), 4, CV_AA);
 
 		/* Output Frame */
-		imshow("ControlVideo", frame);
-		imshow("SkinDetect", skinFrame);
-		imshow("BGSubtract", fgMaskMog);
+		// imshow("ControlVideo", frame);
+		// imshow("SkinDetect", skinFrame);
+		// imshow("BGSubtract", fgMaskMog);
 		// imshow("Color BGS", colorForeground);
-		imshow("Contours", contourFrame);
+		// imshow("FingerTips", contourFrame);
+		imshow("Output", finalFrame);
 
 
 		/* Wait for ESC Key */
@@ -154,10 +177,9 @@ void mySkinDetect(Mat& src, Mat& dst) {
 }
 
 /* Draw Lines around hand */
-void showContours(Mat& src, Mat& dst) {
+int findFingers(Mat& src, Mat& dst) {
 	vector<vector<Point> > contours;
 	vector<Vec4i> hierarchy;
-	// vector<vector<Vec4i> > defects(contours.size());
 
 	/* Find Contours from the Threshold Output */
 	findContours(src, contours, hierarchy, CV_RETR_EXTERNAL, 
@@ -165,7 +187,7 @@ void showContours(Mat& src, Mat& dst) {
 
 	/* Find CONVEX HULL for each contour */
 	vector<vector<Point> > hull(contours.size());
-	vector<vector<int> > hullIndices(contours.size());
+	// vector<vector<int> > hullIndices(contours.size());
 	for (int i = 0; i < contours.size(); i++) {
 		convexHull(Mat(contours[i]), hull[i], false);
 	}
@@ -181,19 +203,94 @@ void showContours(Mat& src, Mat& dst) {
 		}
 	}
 
-	// convexHull(contours[maxIndex], hull[maxIndex], false);
-	// convexHull(contours[maxIndex], hullIndices[maxIndex], false);
-	// convexityDefects(contours[maxIndex], hullIndices[maxIndex], defects[maxIndex]);
-
-	/* Draw Contours based on Hull Results */
-	// for (int i = 0; i < contours.size(); i ++) {
-	// 	Scalar color = Scalar(255, 0, 0);
-	// 	drawContours(dst, contours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
-	// 	drawContours(dst, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
-	// }
-
 	Scalar color = Scalar(255, 0, 0);
 	drawContours(dst, contours, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
 	drawContours(dst, hull, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
 
+	int returnValue = -1;
+
+	/** Detect Defects 
+		- Tutorial From: https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/
+		*/
+	if (!contours.empty()) {
+		if(hull[maxIndex].size() > 2) {
+			/* Calculate the Single Hull & its Indices */
+			vector<int> hullIndices;
+			convexHull(Mat(contours[maxIndex]), hullIndices, true);
+
+			/* Calculate the Defects (Gaps) */
+			vector<Vec4i> convexityDefectSet;
+			convexityDefects(Mat(contours[maxIndex]), hullIndices, convexityDefectSet);
+
+			/* Bound the Hand with a Box */
+			Rect boundary = boundingRect(hull[maxIndex]);
+			rectangle(dst, boundary, Scalar(255, 0, 0));
+			Point midPoint = Point(boundary.x + boundary.width/2, boundary.y + boundary.height/2);
+			vector<Point> validPoints;
+			int boundArea = boundary.width * boundary.height;
+
+			/* Find Finger Tips */
+			for (int i = 0; i < convexityDefectSet.size(); i++) {
+				Point p1 = contours[maxIndex][convexityDefectSet[i][0]];
+				Point p2 = contours[maxIndex][convexityDefectSet[i][1]];
+				Point p3 = contours[maxIndex][convexityDefectSet[i][2]];
+
+				double angle = atan2(midPoint.y - p1.y, midPoint.x - p1.x) * 180 / CV_PI;
+				double inAngle = innerAngle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+				double len = sqrt(pow(p1.x - p3.x, 2) + pow(p1.y - p3.y, 2));
+
+				if (angle > -30 && angle < 180 && abs(inAngle) > 10 && boundArea > 42000
+					&& abs(inAngle) < 120 && len > 0.1 * boundary.height) {
+					if(p1.y < boundary.y + 0.4 * boundary.height) validPoints.push_back(p1);
+					if(p2.y < boundary.y + 0.4 * boundary.height) validPoints.push_back(p2);
+				}
+
+				/* Draw Lines for Testing */
+				// line(dst, p1, p3, Scalar(255, 0, 0), 2);
+				// line(dst, p3, p2, Scalar(255, 0, 0), 2);
+			}
+
+			/* Draw Finger Tips */
+			for (int i = 0; i < validPoints.size(); i++) {
+				circle(dst, validPoints[i], 9, Scalar(255, 0, 0));
+			}
+
+			returnValue = validPoints.size();
+		}
+	}
+
+	return returnValue;
+}
+
+/* Function to Calculate Inner Angle,
+ 	Source Mentioned in Prototype
+*/
+float innerAngle(float px1, float py1, float px2, float py2, float cx1, float cy1) {
+	float dist1 = sqrt( (px1-cx1)*(px1-cx1) + (py1-cy1)*(py1-cy1) );
+	float dist2 = sqrt( (px2-cx1)*(px2-cx1) + (py2-cy1)*(py2-cy1) );
+	float Ax, Ay, Bx, By, Cx, Cy;
+
+	Cx = cx1; Cy = cy1;
+	if(dist1 < dist2) {
+		Bx = px1;
+		By = py1;
+		Ax = px2;
+		Ay = py2;
+	} else {
+		Bx = px2;
+		By = py2;
+		Ax = px1;
+		Ay = py1;
+	}
+	
+	float Q1 = Cx - Ax;
+	float Q2 = Cy - Ay;
+	float P1 = Bx - Ax;
+	float P2 = By - Ay;
+
+	float A = acos((P1*Q1 + P2*Q2) / (sqrt(P1*P1+P2*P2) * sqrt(Q1*Q1+Q2*Q2)));
+
+	A = A*180/CV_PI;
+
+	return A;
 }
