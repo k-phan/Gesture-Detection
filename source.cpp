@@ -1,3 +1,9 @@
+/* CS440 P2 Project
+	Khai Phan
+	Nick Mauro
+	Michael Deng
+*/
+
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/video/background_segm.hpp"
