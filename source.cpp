@@ -34,6 +34,16 @@ Source: https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-o
 */
 float innerAngle(float px1, float py1, float px2, float py2, float cx1, float cy1);
 
+/**
+Function that does frame differencing between current frame and previous frame
+*/
+void calcFrameDiff(Mat& prev, Mat& curr, Mat& dst);
+
+/**
+Function that calculates motion history & decides whether wave is detected
+*/
+int detectWave(vector<Mat> mh, vector<int> mhl, Mat& dst);
+
 int main(){
 	/* Use Camera */
 	VideoCapture cap(0);
@@ -47,15 +57,36 @@ int main(){
 	/* Windows */
 	// namedWindow("ControlVideo", WINDOW_AUTOSIZE);
 	// namedWindow("SkinDetect", WINDOW_AUTOSIZE);
-	// namedWindow("BGSubtract", WINDOW_AUTOSIZE);
+	namedWindow("BGSubtract", WINDOW_AUTOSIZE);
 	// namedWindow("Color BGS", WINDOW_AUTOSIZE);
 	// namedWindow("FingerTips", WINDOW_AUTOSIZE);
+	namedWindow("Motion History", WINDOW_AUTOSIZE);
 	namedWindow("Output", WINDOW_AUTOSIZE);
 
 	/* Test Frame Reading from Camera */
-	Mat testFrame;
-	bool frameSuccess = cap.read(testFrame);
+	Mat initFrame;
+	bool frameSuccess = cap.read(initFrame);
 
+	/* Initialize Motion History Variables */
+	vector<Mat> myMotionHistory;
+	Mat fMH1, fMH2, fMH3, fMH4;
+	fMH1 = Mat::zeros(initFrame.rows, initFrame.cols, CV_8UC1);
+	fMH2 = fMH1.clone();
+	fMH3 = fMH1.clone();
+	fMH4 = fMH1.clone();
+	myMotionHistory.push_back(fMH1);
+	myMotionHistory.push_back(fMH2);
+	myMotionHistory.push_back(fMH3);
+	myMotionHistory.push_back(fMH4);
+	vector<int> myMHLog;
+	for(int i = 0; i < 4; i++) {
+		myMHLog.push_back(0);
+	}
+	int waveCounter = 0;
+
+	int prevFrameInit = 0;
+	Mat prevFrame;
+	
 	/* Background Subtract Permanent Variables */
 	Mat fgMaskMog;
 	Ptr<BackgroundSubtractorKNN> pMOG;
@@ -82,31 +113,53 @@ int main(){
 		Mat skinFrame = frameDest.clone();
 
 		/* Image Processing */
-			/* Background Subtract */
+			/** Background Subtract */
 		Mat bgsFrame = frame.clone();
 		pMOG->apply(bgsFrame, fgMaskMog, .0008);
 		// pMOG->apply(bgsFrame, fgMaskMog);
 		// Mat colorForeground = Mat::zeros(frame.size(), frame.type());
 		// frame.copyTo(colorForeground, fgMaskMog);
-			/* Skin Detect */
+
+			/** Skin Detect */
 		mySkinDetect(frame, skinFrame);
 		Mat newSkinFrame = frameDest.clone();
 		skinFrame.copyTo(newSkinFrame, fgMaskMog);
-			/* Blur Image */
+
+			/** Blur Image */
 		Mat blurFrame1 = frameDest.clone();
 		Mat blurFrame2 = frameDest.clone();
 		GaussianBlur(newSkinFrame, blurFrame1, Size(11, 55), 0, BORDER_DEFAULT);
 		medianBlur(blurFrame1, blurFrame2, 13);
-			/* Find Contours */
+
+			/** Find Contours */
 		Mat contourFrame = blurFrame2.clone();
 		int numCircles = findFingers(blurFrame2, contourFrame);
-			/* Final Frame */
+
+			/** Perform Frame Differencing & Motion History */
+		if (!prevFrameInit) {
+			prevFrame = frame.clone();
+			prevFrameInit = 1;
+		} 
+
+		Mat frameDiff = frameDest.clone();
+		calcFrameDiff(prevFrame, frame, frameDiff);
+		myMotionHistory.erase(myMotionHistory.begin());
+		myMotionHistory.push_back(frameDiff);
+		myMHLog.erase(myMHLog.begin());
+		myMHLog.push_back(numCircles);
+		Mat myMH = frameDest.clone();
+		if(detectWave(myMotionHistory, myMHLog, myMH)) {
+			waveCounter = 12;
+		}
+
+			/** Final Frame */
 		Mat finalFrame = contourFrame.clone();
 		String outputString = "";
-		if (numCircles == 8 || numCircles == 9) {
+		if (waveCounter) {
+			waveCounter--;
+			outputString = "*WAVE BACK*";
+		} else if (numCircles == 8 || numCircles == 9) {
 			outputString = "High Five!!";
-		} else if (numCircles == 6 || numCircles == 7) {
-			outputString = "High Four?!";
 		} else if (numCircles == 3 || numCircles == 4) {
 			outputString = "Peace!";
 		} else if (numCircles == 1 || numCircles == 2) {
@@ -118,11 +171,14 @@ int main(){
 		/* Output Frame */
 		// imshow("ControlVideo", frame);
 		// imshow("SkinDetect", skinFrame);
-		// imshow("BGSubtract", fgMaskMog);
+		imshow("BGSubtract", fgMaskMog);
 		// imshow("Color BGS", colorForeground);
 		// imshow("FingerTips", contourFrame);
+		imshow("Motion History", myMH);
 		imshow("Output", finalFrame);
 
+		/* Replace InitFrame */
+		prevFrame = frame;
 
 		/* Wait for ESC Key */
 		if (waitKey(30) == 27) {
@@ -293,4 +349,112 @@ float innerAngle(float px1, float py1, float px2, float py2, float cx1, float cy
 	A = A*180/CV_PI;
 
 	return A;
+}
+
+/* Function that does frame differencing between the current frame and the previous frame */
+void calcFrameDiff(Mat& prev, Mat& curr, Mat& dst) {
+	//For more information on operation with arrays: http://docs.opencv.org/modules/core/doc/operations_on_arrays.html
+	//For more information on how to use background subtraction methods: http://docs.opencv.org/trunk/doc/tutorials/video/background_subtraction/background_subtraction.html
+	absdiff(prev, curr, dst);
+	Mat gs = dst.clone();
+	cvtColor(dst, gs, CV_BGR2GRAY);
+	dst = gs > 50;
+	Vec3b intensity = dst.at<Vec3b>(100, 100);
+}
+
+/* Generate motion energy and determine if wave has been done */
+int detectWave(vector<Mat> mh, vector<int> mhl, Mat& dst) {
+	for (int i = 0; i < dst.rows; i++) {
+		for (int j = 0; j < dst.cols; j++) {
+			if(mh[0].at<uchar>(i, j) == 255 || mh[1].at<uchar>(i, j) == 255 ||
+				mh[2].at<uchar>(i, j) == 255 || mh[3].at<uchar>(i, j) == 255) {
+				dst.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+
+	Mat blurFrame = Mat::zeros(dst.rows, dst.cols, CV_8UC1);
+	GaussianBlur(dst, blurFrame, Size(11, 55), 0, BORDER_DEFAULT);
+	// medianBlur(dst, blurFrame, 13);
+	medianBlur(blurFrame, dst, 13);
+
+	/* Kept Crashing When Everything was black ...
+		so if everything is black, just don't run :')
+	*/
+	int blackFlag = 1;
+	int bfCounter = 0;
+	for (int i = 0; i < dst.rows; i++) {
+		for (int j = 0; j < dst.cols; j++) {
+			if (dst.at<uchar>(i, j) != 0) {
+				bfCounter++;
+				if (bfCounter > 300) {
+					blackFlag = 0;	
+					break;
+				}
+			}
+		}
+	}
+
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+
+	int maxIndex = -1;
+	double maxArea = 0;
+	int areaFlag = 0;
+	int returnFlag = 0;
+
+	if(!blackFlag) {
+		returnFlag = 1;
+
+		/* Find Contours from the Threshold Output */
+		findContours(dst, contours, hierarchy, CV_RETR_EXTERNAL, 
+			CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
+
+		/* Find CONVEX HULL for each contour */
+		vector<vector<Point> > hull(contours.size());
+		if (!contours.empty()) {
+			for (int i = 0; i < contours.size(); i++) {
+				convexHull(Mat(contours[i]), hull[i], false);
+			}
+		}
+
+		/* Find Largest Contour & Its AREA */
+		if (!contours.empty()) {
+			for (int i = 0; i < contours.size(); i++) {
+				double area = contourArea(contours[i], false);
+				if (area > maxArea) {
+					maxArea = area;
+					maxIndex = i;
+				}
+			}
+
+			/* THIS WILL CRASH IF HULL IS TOO BIG OR SMALL!!! */
+			if (hull[maxIndex].size() > 2 && hull[maxIndex].size() < 100) {
+				Scalar color = Scalar(255, 0, 0);
+				drawContours(dst, contours, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
+				drawContours(dst, hull, maxIndex, color, 1, 8, vector<Vec4i>(), 0, Point());
+				Rect boundary = boundingRect(hull[maxIndex]);
+				rectangle(dst, boundary, Scalar(255, 0, 0));
+
+				if (boundary.width * boundary.height > 130000) {
+					areaFlag = 1;
+				}
+			}
+		}
+
+		for (int i = 0; i < mhl.size(); i++) {
+			if (mhl[i] < 6 || mhl[i] > 9) {
+				returnFlag = 0;
+			}
+		}
+
+		if (returnFlag) {
+			if (!areaFlag) {
+				returnFlag = 0;
+			}
+		}
+	}
+
+	/* 0 for NO, 1 for YES */
+	return returnFlag;
 }
