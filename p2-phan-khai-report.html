@@ -1,0 +1,190 @@
+
+<html>
+<head>
+<title> CS440: P2 | Khai Phan </title>
+	<style>
+		body{
+		font-family: 'Trebuchet MS', Verdana;
+		}
+		p{
+		font-family: 'Trebuchet MS', Times;
+		margin: 10px 10px 15px 20px;
+		}
+		h3{
+		margin: 5px;
+		}
+		h2{
+		margin: 10px;
+		}
+		h1{
+		margin: 10px 0px 0px 20px;
+		}
+		div.main-body{
+		align:center;
+		margin: 30px;
+		}
+		hr{
+		margin:20px 0px 20px 0px;
+		}
+	</style>
+</head>
+
+<body>
+<center>
+<a href="http://www.bu.edu">
+	<img border="0" src="http://www.cs.bu.edu/fac/betke/images/bu-logo.gif" width="119" height="120">
+</a>
+</center>
+
+<h1>P2 - Gesture Detection with OpenCV</h1>
+<p> 
+ CS440 P2 <br>
+ Khai Phan <br>
+ Partners: Michael Deng, Nick Mauro <br>
+ Due: April 7th, 2017
+</p>
+
+<div class="main-body">
+<hr>
+<h2> Problem Definition </h2>
+<p>
+In this programming assignment, we are asked to design and implement algorithms that recognize at least 3 hand shapes
+(such as making a fist, thumbs up, thumbs down, pointing with an index finger etc.) or gestures (such as
+waving with one or both hands, swinging, drawing something in the air etc.) and create a graphical display
+that responds to the recognition of the hand shapes or gestures. In the three shapes/gestures, there must be at least one
+dynamic gesture (movement such as waving) and at least one static (such as pointing).
+</p>
+<p>
+This is useful because gesture recognition provides a means of sending information to a program via movement rather than
+physical interaction with the program. It opens up areas of research with human emotions/actions as well as an area of
+research for creating artificial intelligence which can recognize and mimic human gestures. One foreseeable difficulty
+is using size as an input for classification. The reason is because size can vary greatly depending on the distance from
+the camera.
+</p>
+
+<hr>
+<h2> Method and Implementation </h2>
+<p>
+For this program, we were able to detect 3 hand gestures: a wave, a high-five, and a peace sign.
+</p>
+
+<p>
+Overall, the high-five and peace gestures are detected using finger recognition. This is with the help of 
+<a href='https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/'>Abner Matheus</a>, who
+walked through the steps of detecting finger tips. Then, based on the number of corners (fingers), the program
+makes a decision on whether the gesture is a high-five, a peace sign, or neither. For the wave, the finger recognition
+algorithm is used for 4 frames in a motion history detection. If the hand (in four different positions) generates a 
+sufficiently large area, and has 4-5 fingers raised during each frame, then the program decides that it is a wave.
+</p>
+
+<p>
+Functions/Algorithms
+<ul>
+	<li> Background Detection and Removal
+		<ul>
+			<li> Uses KNN learning to determine background, then use background as a mask for new frames. </li>
+		</ul>
+	</li>
+	<li> Skin Detection
+		<ul>
+			<li> Uses RGB values to determine skin color, outputting a white pixel if it is considered skin and a 
+			black if not. This is combined with the Background Detection and Removal algorithm as a mask to only consider
+			non-background skin-colored objects.</li>
+		</ul>
+	</li>
+	<li> Blurring
+		<ul>
+			<li> Use median blurring and gaussian blurring to remove small black patches within the hand. This will help with contour
+			and hull detection as long as rectangle wrapping.</li>
+		</ul>
+	</li>
+	<li> Contour, Hull, and Rectangle Wrap
+		<ul>
+			<li> Here, we used some help again from <a href='https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/'>Abner Matheus</a>,
+			and detected the contours and hull around the largest skin object. This allows us to calculate a rough area for our detected object as well as
+			a rough shape.</li>
+		</ul>
+	</li>
+	<li> Finger Tip Detection and Static Recognition
+		<ul>
+			<li> Using the previous function's output, if the size of the non-background skin-colored object is large enough, detect fingertips using angles
+			and length (again with help from <a href='https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/'>Abner Matheus</a>). Depending
+			on the number of tips, the gesture would be classified as either peace or high-five (5 fingers vs 2 fingers). </li>
+		</ul>
+	</li>
+	<li> Motion History and Dynamic Recognotion
+		<ul>
+			<li> This detects the 4 most recent frames and then sums their images into one. If the area of the object generated exceeds a certain threshold, and
+			if the 4 frames have been recognizing an open hand with 4-5 fingers, then this is a wave.</li>
+		</ul>
+	</li>	
+</ul>
+</p>
+
+<hr>
+<h2>Experiments</h2>
+<p>
+For the experiment, I tested the program about 20 times per gesture (none, wave, peace, and high-5). I then created a confusion matrix for each of them. It is 
+good to note that the test is not optimal because of slightly poor backgrounds and the program's inability to stop between tests. The result for a test is done to
+the best of my ability.
+</p>
+
+<hr>
+<h2>Results</h2>
+
+<h3 style="text-decoration: underline;">Sample Gestures</h3>
+
+<h3>Peace</h3>
+<img src='./img/peace.png'>
+
+<h3>High-Five</h3>
+<img src='./img/highfive.png'>
+
+<h3>Wave</h3>
+<img src='./img/wave.png'>
+<h3>Wave Motion History</h3>
+<img src='./img/wave-motion-history.png'>
+
+<h3 style="text-decoration: underline;">Confusion Matrix</h3>
+<img src='./img/Confusion Matrix.png'>
+
+<hr>
+<h2> Discussion </h2>
+<p>
+Some of the strengths of our method is that the background detection and removal does a good job at removing noise. However,
+the issue with our implementation is that the hand waving detection relies on the high-five gesture and movement to generate
+a larger area to meet a threshold. Because the threshold is a fixed number based on size, if the hand is closer to the camera,
+a high-five can trigger a hand-waving gesture. Additionally, because the finger tips are determined based on angles and length,
+rather than shape comparison, random blobs like face will occasionally detect finger tips and register a gesture.
+</p>
+<p>
+Nonetheless, our results were generally good, functioning as expected. Some areas of improvement are to include shape comparison
+with pre-created hand images; this will remove a lot of false positives. Additionally, using a different method rather than
+measuring solely area for dynamic gesture recognition will probably improve the waving gesture results.
+</p>
+
+<hr>
+<h2> Conclusions </h2>
+
+<p>
+Overall, the conclusion is that gesture detection is a multi-step process which can be refined using blurring, skin detection, and
+motion detection. We successfully implemented the gestures with relatively decent success rates.
+</p>
+
+
+<hr>
+<h2> Credits and Bibliography </h2>
+<p>
+<a href='https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/'>Abner Matheus: https://picoledelimao.github.io/blog/2015/11/15/fingertip-detection-on-opencv/'</a>
+</p>
+
+<p>
+My teammates: Nick Mauro and Michael Deng.
+</p>
+<hr>
+</div>
+</body>
+
+
+
+</html>
